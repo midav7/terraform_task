@@ -17,7 +17,6 @@ resource "aws_vpc" "vpc2" {
 }
 
 resource "aws_subnet" "bastion_subnet" {
-    depends_on = [ aws_vpc.vpc1 ]
     vpc_id = aws_vpc.vpc1.id
     cidr_block = "10.0.0.0/24"
     map_public_ip_on_launch = "true" # it makes this a public subnet
@@ -28,7 +27,6 @@ resource "aws_subnet" "bastion_subnet" {
 }
 
 resource "aws_subnet" "internal_subnet" {
-    depends_on = [ aws_vpc.vpc1, aws_subnet.bastion_subnet]
     vpc_id = aws_vpc.vpc2.id
     cidr_block = "10.1.0.0/24"
     availability_zone = "eu-central-1b"
@@ -38,89 +36,29 @@ resource "aws_subnet" "internal_subnet" {
 }
 
 resource "aws_internet_gateway" "bastion_igw" {
-    depends_on = [ aws_vpc.vpc1, 
-        aws_subnet.bastion_subnet,
-        aws_subnet.internal_subnet 
-    ]
     vpc_id = aws_vpc.vpc1.id
     tags = {
         Name = "bastion-igw"
     }
 }
 
-# resource "aws_route" "bastion_internet_access" {
-#     route_table_id = aws_vpc.vpc1.main_route_table_id
-#     destination_cidr_block = "0.0.0.0/0"
-#     gateway_id = aws_internet_gateway.bastion_igw.id
-# }
-
-resource "aws_route_table" "bastion_rt" {
-    depends_on = [
-        aws_vpc.vpc1,
-        aws_internet_gateway.bastion_igw
-    ]
-    vpc_id = aws_vpc.vpc1.id
-
-    # NAT Rule
-    route {
-        cidr_block = "0.0.0.0/0"
-        gateway_id = aws_internet_gateway.bastion_igw.id
-    }
+resource "aws_route" "bastion_internet_access" {
+    route_table_id = aws_vpc.vpc1.main_route_table_id
+    destination_cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.bastion_igw.id
 }
 
-resource "aws_route_table_association" "bastion_crta" {
-    depends_on = [
-        aws_vpc.vpc1,
-        aws_subnet.bastion_subnet,
-        aws_subnet.internal_subnet,
-        aws_route_table.bastion_rt
-    ]
-
-    # Public Subnet ID
-    subnet_id = aws_subnet.bastion_subnet.id
-
-    #  Route Table ID
-    route_table_id = aws_route_table.bastion_rt.id
-    }
-
 resource "aws_eip" "nat_gw_eip" {
-    depends_on = [ aws_route_table_association.bastion_crta ]
     vpc = true
 }
 
 resource "aws_nat_gateway" "bastion_ngw" {
-    depends_on = [ aws_eip.nat_gw_eip ]
     allocation_id = aws_eip.nat_gw_eip.id
     subnet_id = aws_subnet.bastion_subnet.id
-    
+    depends_on = [aws_internet_gateway.bastion_igw]
     tags = {
         Name = "Bastion NAT"
     }
-}
-
-resource "aws_route_table" "nat_gw_rt" {
-    depends_on = [ aws_nat_gateway.bastion_ngw ]
-    vpc_id = aws_vpc.vpc1.id
-
-    route {
-        cidr_block = "0.0.0.0/0"
-        nat_gateway_id = aws_nat_gateway.bastion_ngw.id
-    }
-
-    tags = {
-        Name = "Route Table for NAT Gateway"
-    }
-}
-
-
-resource "aws_route_table_association" "nat_gw_rt_association" {
-    depends_on = [ aws_route_table.nat_gw_rt ]
-
-    # Private Subnet ID for adding this route table to the DHCP server of Private subnet
-    subnet_id = aws_subnet.internal_subnet.id
-
-    # Route Table ID
-    route_table_id = aws_route_table.internal_gw_rt.id
 }
 
 data "aws_caller_identity" "current" {} # required for VPC peering
